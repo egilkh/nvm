@@ -750,6 +750,9 @@ nvm() {
       local INSTALLS
       INSTALLS=$(nvm use $VERSION > /dev/null && npm list --global --parseable --depth=0 2> /dev/null | tail -n +2 | \grep -o -e '/[^/]*$' | cut -c 2- | xargs)
 
+      # Prevent npm from being installed
+      INSTALLS=${INSTALLS/" npm "/" "}
+
       npm install -g --quiet $INSTALLS
     ;;
     "clear-cache" )
