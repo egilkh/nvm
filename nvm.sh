@@ -58,6 +58,12 @@ nvm_tree_contains_path() {
   tree="$1"
   local node_path
   node_path="$2"
+
+  if [ "@$tree@" = "@@" ] || [ "@$node_path@" = "@@" ]; then
+    >&2 echo "both the tree and the node path are required"
+    return 2
+  fi
+
   local pathdir
   pathdir=$(dirname "$node_path")
   while [ "$pathdir" != "" ] && [ "$pathdir" != "." ] && [ "$pathdir" != "/" ] && [ "$pathdir" != "$tree" ]; do
@@ -95,13 +101,37 @@ nvm_rc_version() {
   fi
 }
 
+nvm_version_greater() {
+  local LHS
+  LHS=$(echo "$1" | awk -F. '{for (i=1;i<=NF;++i) printf "%010d",$i}')
+  local RHS
+  RHS=$(echo "$2" | awk -F. '{for (i=1;i<=NF;++i) printf "%010d",$i}')
+  [ $LHS -gt $RHS ];
+}
+
+nvm_version_dir() {
+  local NVM_USE_NEW_DIR
+  NVM_USE_NEW_DIR="$1"
+  if [ -z "$NVM_USE_NEW_DIR" ] || [ "$NVM_USE_NEW_DIR" = "new" ]; then
+    echo "$NVM_DIR/versions"
+  elif [ "$NVM_USE_NEW_DIR" = "old" ]; then
+    echo "$NVM_DIR"
+  else
+    echo "unknown version dir" >&2
+    return 3
+  fi
+}
+
 nvm_version_path() {
   local VERSION
   VERSION="$1"
   if [ -z "$VERSION" ]; then
-    echo "$NVM_DIR"
-  elif [ ! -z "$VERSION" ]; then
-    echo "$NVM_DIR/$VERSION"
+    echo "version is required" >&2
+    return 3
+  elif nvm_version_greater 0.12.0 "$VERSION"; then
+    echo "$(nvm_version_dir old)/$VERSION"
+  else
+    echo "$(nvm_version_dir new)/$VERSION"
   fi
 }
 
@@ -171,7 +201,7 @@ nvm_binary_available() {
 
 nvm_ls_current() {
   local NODE_PATH
-  NODE_PATH="$(which node)"
+  NODE_PATH="$(which node 2> /dev/null)"
   if [ $? -ne 0 ]; then
     echo 'none'
   elif nvm_tree_contains_path "$NVM_DIR" "$NODE_PATH"; then
@@ -205,8 +235,13 @@ nvm_ls() {
     if [ `expr "$PATTERN" : "v[0-9]*\.[0-9]*$"` != 0 ]; then
       PATTERN="$PATTERN."
     fi
-    VERSIONS=`find "$NVM_DIR/" -maxdepth 1 -type d -name "$PATTERN*" -exec basename '{}' ';' \
-      | sort -t. -u -k 1.2,1n -k 2,2n -k 3,3n | \grep -v '^ *\.' | \grep -e '^v'`
+    if [ -d "$(nvm_version_dir new)" ]; then
+      VERSIONS=`find "$(nvm_version_dir new)/" "$(nvm_version_dir old)/" -maxdepth 1 -type d -name "$PATTERN*" -exec basename '{}' ';' \
+        | sort -t. -u -k 1.2,1n -k 2,2n -k 3,3n | \grep -v '^ *\.' | \grep -e '^v' | \grep -v -e '^versions$'`
+    else
+      VERSIONS=`find "$(nvm_version_dir old)/" -maxdepth 1 -type d -name "$PATTERN*" -exec basename '{}' ';' \
+        | sort -t. -u -k 1.2,1n -k 2,2n -k 3,3n | \grep -v '^ *\.' | \grep -e '^v'`
+    fi
   fi
   if [ -z "$VERSIONS" ]; then
     echo "N/A"
@@ -756,7 +791,7 @@ nvm() {
       npm install -g --quiet $INSTALLS
     ;;
     "clear-cache" )
-      rm -f $NVM_DIR/v* 2>/dev/null
+      rm -f $NVM_DIR/v* "$(nvm_version_dir)" 2>/dev/null
       echo "Cache cleared."
     ;;
     "version" )
@@ -766,7 +801,7 @@ nvm() {
       echo "0.13.1"
     ;;
     "unload" )
-      unset -f nvm nvm_print_versions nvm_checksum nvm_ls_remote nvm_ls nvm_remote_version nvm_version nvm_rc_version > /dev/null 2>&1
+      unset -f nvm nvm_print_versions nvm_checksum nvm_ls_remote nvm_ls nvm_remote_version nvm_version nvm_rc_version nvm_version_greater > /dev/null 2>&1
       unset RC_VERSION NVM_NODEJS_ORG_MIRROR NVM_DIR NVM_CD_FLAGS > /dev/null 2>&1
     ;;
     * )
